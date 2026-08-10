@@ -31,6 +31,7 @@ subroutine collect_gfn2(testsuite)
    testsuite = [ &
       new_unittest("scc", test_gfn2_scc), &
       new_unittest("api", test_gfn2_api), &
+      new_unittest("restart-false-camm", test_gfn2_restart_false_camm), &
       new_unittest("gbsa", test_gfn2gbsa_api), &
       new_unittest("salt", test_gfn2salt_api), &
       new_unittest("pcem", test_gfn2_pcem_api), &
@@ -233,6 +234,60 @@ subroutine test_gfn2_api(error)
    call check_(error, gradient(3,7), 0.99750545315944E-02_wp, thr=thr)
 
 end subroutine test_gfn2_api
+
+
+subroutine test_gfn2_restart_false_camm(error)
+   use xtb_mctc_accuracy, only : wp
+   use xtb_type_environment, only : TEnvironment, init
+   use xtb_type_molecule, only : TMolecule, init
+   use xtb_type_restart, only : TRestart
+   use xtb_type_data, only : scc_results
+   use xtb_xtb_calculator, only : TxTBCalculator, newXTBCalculator, newWavefunction
+
+   type(error_type), allocatable, intent(out) :: error
+
+   integer, parameter :: nat = 7
+   integer, parameter :: at(nat) = [6,6,6,1,1,1,1]
+   real(wp), parameter :: xyz(3,nat) = reshape([ &
+      0.00000000000000_wp,  0.00000000000000_wp,-1.79755622305860_wp, &
+      0.00000000000000_wp,  0.00000000000000_wp, 0.95338756106749_wp, &
+      0.00000000000000_wp,  0.00000000000000_wp, 3.22281255790261_wp, &
+     -0.96412815539807_wp,-1.66991895015711_wp,-2.53624948351102_wp, &
+     -0.96412815539807_wp, 1.66991895015711_wp,-2.53624948351102_wp, &
+      1.92825631079613_wp, 0.00000000000000_wp,-2.53624948351102_wp, &
+      0.00000000000000_wp, 0.00000000000000_wp, 5.23010455462158_wp], [3,nat])
+
+   type(TEnvironment) :: env_clean, env_dirty
+   type(TMolecule) :: mol
+   type(TxTBCalculator) :: calc
+   type(TRestart) :: clean, dirty
+   type(scc_results) :: res_clean, res_dirty
+   real(wp) :: eclean, edirty, gap, sigma(3,3)
+   real(wp) :: gclean(3,nat), gdirty(3,nat)
+
+   call init(env_clean)
+   call init(env_dirty)
+   call init(mol, at, xyz)
+
+   call newXTBCalculator(env_clean, mol, calc, method=2)
+   call newWavefunction(env_clean, mol, calc, clean)
+   dirty = clean
+
+   ! Deliberately emulate stale restart data.  With restart=.false., CAMMs
+   ! must be reconstructed from the density before the first SCC potential.
+   dirty%wfn%dipm(1,1) = dirty%wfn%dipm(1,1) + 1.0_wp
+   dirty%wfn%qp(1,1) = dirty%wfn%qp(1,1) + 1.0_wp
+
+   ! One iteration is sufficient to expose the first-potential state and
+   ! avoids convergence masking the restart initialization.
+   calc%maxiter = 1
+   call calc%singlepoint(env_clean, mol, clean, 0, .false., eclean, gclean, sigma, gap, res_clean)
+   call calc%singlepoint(env_dirty, mol, dirty, 0, .false., edirty, gdirty, sigma, gap, res_dirty)
+
+   call check_(error, maxval(abs(gclean-gdirty)), 0.0_wp, thr=1.0e-10_wp)
+   call check_(error, abs(eclean-edirty), 0.0_wp, thr=1.0e-10_wp)
+
+end subroutine test_gfn2_restart_false_camm
 
 subroutine test_gfn2gbsa_api(error)
    use xtb_mctc_accuracy, only : wp

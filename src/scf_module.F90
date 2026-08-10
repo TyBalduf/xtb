@@ -609,6 +609,15 @@ subroutine scf(env, mol, wfn, basis, pcem, xtbData, solvation, &
    ! ========================================================================
    ! SCC iterations
 
+   ! The first SCC iteration uses the CAMMs supplied to the iterator to build
+   ! the anisotropic potential.  When no restart is requested, these moments
+   ! must be regenerated from the current density rather than inherited from
+   ! the previous calculation.  Subsequent iterations update them in scc.
+   if (.not.restart .and. allocated(aes)) then
+      call mmompop(mol%n,basis%nao,basis%aoat2,mol%xyz,wfn%P,S,dpint,qpint, &
+         &         wfn%dipm,wfn%qp)
+   endif
+
    if (minpr) then
       write(env%unit,'(a)')
       write(env%unit,*) 'iter      E             dE          RMSdq', &
